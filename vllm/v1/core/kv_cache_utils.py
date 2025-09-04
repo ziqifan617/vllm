@@ -87,6 +87,7 @@ class PrefixCachingMetrics:
         self.aggregated_requests = 0
         self.aggregated_query_total = 0
         self.aggregated_query_hit = 0
+        self.aggregated_query_hit_cpu = 0
         # A deque of (requests, queries, hits) for the most recent requests.
         self.query_queue: deque[tuple[int, int, int]] = deque()
 
@@ -108,23 +109,26 @@ class PrefixCachingMetrics:
             self.reset()
 
         # Update the metrics.
-        self.query_queue.append((stats.requests, stats.queries, stats.hits))
+        self.query_queue.append((stats.requests, stats.queries, stats.hits, stats.hits_cpu))
         self.aggregated_requests += stats.requests
         self.aggregated_query_total += stats.queries
         self.aggregated_query_hit += stats.hits
+        self.aggregated_query_hit_cpu += stats.hits_cpu
 
         # Remove the oldest stats if the number of requests exceeds.
         if self.aggregated_requests > self.max_recent_requests:
-            old_requests, old_queries, old_hits = self.query_queue.popleft()
+            old_requests, old_queries, old_hits, old_hits_cpu = self.query_queue.popleft()
             self.aggregated_requests -= old_requests
             self.aggregated_query_total -= old_queries
             self.aggregated_query_hit -= old_hits
+            self.aggregated_query_hit_cpu -= old_hits_cpu
 
     def reset(self):
         """Reset the metrics."""
         self.aggregated_requests = 0
         self.aggregated_query_total = 0
         self.aggregated_query_hit = 0
+        self.aggregated_query_hit_cpu = 0
         self.query_queue.clear()
 
     @property
@@ -134,6 +138,12 @@ class PrefixCachingMetrics:
             return 0.0
         return self.aggregated_query_hit / self.aggregated_query_total
 
+    @property
+    def hit_rate_cpu(self) -> float:
+        """Calculate the CPU hit rate for the past N requests."""
+        if self.aggregated_query_total == 0:
+            return 0.0
+        return self.aggregated_query_hit_cpu / self.aggregated_query_total
 
 @dataclass
 class KVCacheBlock:

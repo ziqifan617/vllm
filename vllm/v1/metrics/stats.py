@@ -24,6 +24,8 @@ class PrefixCacheStats:
     queries: int = 0
     # The number of hits in these requests.
     hits: int = 0
+    # The number of hits on CPU.
+    hits_cpu: int = 0
 
 
 @dataclass
