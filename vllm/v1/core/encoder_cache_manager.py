@@ -67,6 +67,9 @@ class EncoderCacheManager:
         # mm_hash of mm_data => ids of requests that reference the mm_data
         self.cached: dict[str, set[str]] = {}
 
+        # mm_hash that is cached on CPU
+        self.cached_cpu: set[str] = set()
+
         # mm_hash of mm_data => num_encoder_tokens of the mm_data
         self.freeable: OrderedDict[str, int] = OrderedDict()
         self.freed: list[str] = []
@@ -96,18 +99,33 @@ class EncoderCacheManager:
         self._total += 1
 
         # Not cached at all
-        if mm_hash not in self.cached:
+        if mm_hash not in self.cached and mm_hash not in self.cached_cpu:
+            logger.info(f"mm_hash {mm_hash} is not cached in GPU cache or CPU cache")
             return False
 
         # Cache hit
         self._hits += 1
 
         # Cached but currently not referenced by any request
-        if not self.cached[mm_hash]:
-            num_tokens = self.freeable.pop(mm_hash)
-            self.num_freeable_slots -= num_tokens
-
-        self.cached[mm_hash].add(request.request_id)
+        if mm_hash in self.cached:
+            if not self.cached[mm_hash]:
+                logger.info(f"mm_hash {mm_hash} is cached in GPU cache but not referenced by any request")
+                num_tokens = self.freeable.pop(mm_hash)
+                self.num_freeable_slots -= num_tokens
+            self.cached[mm_hash].add(request.request_id)
+        else:
+            num_tokens = request.get_num_encoder_tokens(input_id)
+            if mm_hash in self.cached_cpu:
+                logger.info(f"mm_hash {mm_hash} is cached on CPU")
+                logger.info(f"num_tokens: {num_tokens}, num_free_slots: {self.num_free_slots}")
+                while num_tokens > self.num_free_slots:
+                    logger.info(f"Evicting from CPU cache to free space for onboarding to GPU cache in GPU Model Runner: {mm_hash}")
+                    mm_hash_evcit, num_free_token = self.freeable.popitem(last=False)
+                    del self.cached[mm_hash_evcit]
+                    self.freed.append(mm_hash_evcit)
+                    self.num_free_slots += num_free_token
+            self.cached[mm_hash] = set()
+            self.cached[mm_hash].add(request.request_id)
         return True
 
     def can_allocate(
@@ -152,7 +170,7 @@ class EncoderCacheManager:
             return False
 
         num_tokens += num_tokens_to_schedule
-
+        logger.info(f"num_tokens: {num_tokens}, num_free_slots: {self.num_free_slots}, num_freeable_slots: {self.num_freeable_slots}")
         # Enough free slots
         if num_tokens <= self.num_free_slots:
             return True
@@ -166,6 +184,7 @@ class EncoderCacheManager:
         # until model runner is notified by the scheduler output.
         while num_tokens > self.num_free_slots:
             mm_hash, num_free_token = self.freeable.popitem(last=False)
+            logger.info(f"Evicting from GPU cache to free space: {mm_hash}")
             del self.cached[mm_hash]
             self.freed.append(mm_hash)
             self.num_free_slots += num_free_token
@@ -195,6 +214,8 @@ class EncoderCacheManager:
         assert self.num_freeable_slots >= num_encoder_tokens
 
         self.cached[mm_hash].add(request_id)
+        logger.info(f"Adding {mm_hash} to cached_cpu")
+        self.cached_cpu.add(mm_hash)
         self.num_free_slots -= num_encoder_tokens
         self.num_freeable_slots -= num_encoder_tokens
 
