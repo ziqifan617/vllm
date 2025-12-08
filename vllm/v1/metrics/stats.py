@@ -152,6 +152,16 @@ class MultiModalCacheStats(BaseCacheStats):
 
 
 @dataclass
+class EncoderCacheStats(BaseCacheStats):
+    """
+    Stores encoder cache hit statistics.
+    - `reset`: Whether encoder cache was reset.
+    - `queries`: Refers to the number of encoder inputs
+      that were queried.
+    """
+
+
+@dataclass
 class KVCacheEvictionEvent:
     """Single KV cache block eviction sample."""
 
@@ -185,6 +195,8 @@ class SchedulerStats:
     running_lora_adapters: dict[str, int] = field(default_factory=dict)
 
     cudagraph_stats: CUDAGraphStat | None = None
+
+    encoder_cache_stats: EncoderCacheStats = field(default_factory=EncoderCacheStats)
 
 
 @dataclass

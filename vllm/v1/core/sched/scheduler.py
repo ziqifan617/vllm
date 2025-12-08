@@ -43,6 +43,7 @@ from vllm.v1.core.sched.utils import check_stop, remove_all
 from vllm.v1.engine import EngineCoreEventType, EngineCoreOutput, EngineCoreOutputs
 from vllm.v1.kv_cache_interface import KVCacheConfig
 from vllm.v1.metrics.stats import (
+    EncoderCacheStats,
     PrefixCacheStats,
     SchedulerStats,
 )
@@ -1459,6 +1460,15 @@ class Scheduler(SchedulerInterface):
         connector_stats_payload = (
             kv_connector_stats.data if kv_connector_stats else None
         )
+
+        # Collect encoder cache stats
+        encoder_hits, encoder_total = self.encoder_cache_manager.get_stats()
+        encoder_cache_stats = EncoderCacheStats(
+            requests=encoder_total,  # Each encoder input check is a "request"
+            queries=encoder_total,
+            hits=encoder_hits,
+        )
+
         return SchedulerStats(
             num_running_reqs=len(self.running),
             num_waiting_reqs=len(self.waiting),
@@ -1469,6 +1479,7 @@ class Scheduler(SchedulerInterface):
             spec_decoding_stats=spec_stats,
             kv_connector_stats=connector_stats_payload,
             cudagraph_stats=cudagraph_stats,
+            encoder_cache_stats=encoder_cache_stats,
         )
 
     def make_spec_decoding_stats(

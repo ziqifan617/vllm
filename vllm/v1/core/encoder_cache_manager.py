@@ -71,6 +71,10 @@ class EncoderCacheManager:
         self.freeable: OrderedDict[str, int] = OrderedDict()
         self.freed: list[str] = []
 
+        # Statistics tracking
+        self._hits = 0
+        self._total = 0
+
     def check_and_update_cache(self, request: Request, input_id: int) -> bool:
         """Check if encoder output for a specific multimodal input is cached.
 
@@ -87,9 +91,16 @@ class EncoderCacheManager:
             True if the encoder output for this input is already cached
         """
         mm_hash = request.mm_features[input_id].identifier
+
+        # Track statistics
+        self._total += 1
+
         # Not cached at all
         if mm_hash not in self.cached:
             return False
+
+        # Cache hit
+        self._hits += 1
 
         # Cached but currently not referenced by any request
         if not self.cached[mm_hash]:
@@ -247,6 +258,19 @@ class EncoderCacheManager:
         freed = self.freed
         self.freed = []
         return freed
+
+    def get_stats(self) -> tuple[int, int]:
+        """Get and reset encoder cache statistics.
+
+        Returns:
+            Tuple of (hits, total) representing cache hits and total queries
+            since the last call to this method.
+        """
+        hits = self._hits
+        total = self._total
+        self._hits = 0
+        self._total = 0
+        return hits, total
 
 
 def compute_encoder_budget(

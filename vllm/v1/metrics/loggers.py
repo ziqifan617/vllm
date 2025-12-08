@@ -103,6 +103,7 @@ class LoggingStatLogger(StatLoggerBase):
         self.prefix_caching_metrics = CachingMetrics()
         self.connector_prefix_caching_metrics = CachingMetrics()
         self.mm_caching_metrics = CachingMetrics()
+        self.encoder_caching_metrics = CachingMetrics()
 
         self.spec_decoding_logging = SpecDecodingLogging()
         kv_transfer_config = self.vllm_config.kv_transfer_config
@@ -175,6 +176,8 @@ class LoggingStatLogger(StatLoggerBase):
                 self.cudagraph_logging.observe(scheduler_stats.cudagraph_stats)
             if not self.aggregated:
                 self.last_scheduler_stats = scheduler_stats
+            # Observe encoder cache stats
+            self.encoder_caching_metrics.observe(scheduler_stats.encoder_cache_stats)
         if mm_cache_stats:
             self.mm_caching_metrics.observe(mm_cache_stats)
 
@@ -244,6 +247,9 @@ class LoggingStatLogger(StatLoggerBase):
         if not self.mm_caching_metrics.empty:
             log_parts.append("MM cache hit rate: %.1f%%")
             log_args.append(self.mm_caching_metrics.hit_rate * 100)
+        if not self.encoder_caching_metrics.empty:
+            log_parts.append("Encoder cache hit rate: %.1f%%")
+            log_args.append(self.encoder_caching_metrics.hit_rate * 100)
 
         log_fn(
             self.log_prefix + ", ".join(log_parts),
@@ -552,6 +558,32 @@ class PrometheusStatLogger(AggregateStatLoggerBase):
         )
         self.counter_mm_cache_hits = make_per_engine(
             counter_mm_cache_hits, engine_indexes, model_name
+        )
+
+        #
+        # Encoder cache
+        #
+
+        counter_encoder_cache_queries = self._counter_cls(
+            name="vllm:encoder_cache_queries",
+            documentation=(
+                "Encoder cache queries, in terms of number of queried encoder inputs."
+            ),
+            labelnames=labelnames,
+        )
+        self.counter_encoder_cache_queries = make_per_engine(
+            counter_encoder_cache_queries, engine_indexes, model_name
+        )
+
+        counter_encoder_cache_hits = self._counter_cls(
+            name="vllm:encoder_cache_hits",
+            documentation=(
+                "Encoder cache hits, in terms of number of cached encoder outputs."
+            ),
+            labelnames=labelnames,
+        )
+        self.counter_encoder_cache_hits = make_per_engine(
+            counter_encoder_cache_hits, engine_indexes, model_name
         )
 
         #
@@ -1064,6 +1096,11 @@ class PrometheusStatLogger(AggregateStatLoggerBase):
                     self.labelname_max_lora: self.max_lora,
                 }
                 self.gauge_lora_info.labels(**lora_info_labels).set_to_current_time()
+
+            # Update encoder cache metrics
+            encoder_cache_stats = scheduler_stats.encoder_cache_stats
+            self.counter_encoder_cache_queries[engine_idx].inc(encoder_cache_stats.queries)
+            self.counter_encoder_cache_hits[engine_idx].inc(encoder_cache_stats.hits)
 
         if mm_cache_stats is not None:
             self.counter_mm_cache_queries[engine_idx].inc(mm_cache_stats.queries)
