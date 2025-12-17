@@ -11,7 +11,8 @@ from vllm.config.utils import config
 
 ECProducer = Literal["ec_producer"]
 ECConsumer = Literal["ec_consumer"]
-ECRole = Literal[ECProducer, ECConsumer]
+ECBoth = Literal["ec_both"]
+ECRole = Literal[ECProducer, ECConsumer, ECBoth]
 
 
 @config
@@ -105,6 +106,10 @@ class ECTransferConfig:
     @property
     def is_ec_consumer(self) -> bool:
         return self.ec_connector is not None and self.ec_role in get_args(ECConsumer)
+
+    @property
+    def is_ec_both(self) -> bool:
+        return self.ec_connector is not None and self.ec_role in get_args(ECBoth)
 
     def get_from_extra_config(self, key, default) -> Any:
         return self.ec_connector_extra_config.get(key, default)

@@ -63,6 +63,8 @@ class ECConnectorBase(ABC):
         self._role = role
         if vllm_config.ec_transfer_config is not None:
             self._is_producer = vllm_config.ec_transfer_config.is_ec_producer
+            self._is_consumer = vllm_config.ec_transfer_config.is_ec_consumer
+            self._is_both = vllm_config.ec_transfer_config.is_ec_both
         else:
             raise ValueError("ec_transfer_config must be set for ECConnectorBase")
 
@@ -73,6 +75,14 @@ class ECConnectorBase(ABC):
     @property
     def is_producer(self) -> bool:
         return self._is_producer
+
+    @property
+    def is_consumer(self) -> bool:
+        return self._is_consumer
+
+    @property
+    def is_both(self) -> bool:
+        return self._is_both
 
     # ==============================
     # Worker-side methods
