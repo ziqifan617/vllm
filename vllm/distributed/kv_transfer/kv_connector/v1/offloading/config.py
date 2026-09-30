@@ -68,6 +68,11 @@ def build_offloading_config(
     engine_id = kv_transfer_config.engine_id
 
     parallel_config = vllm_config.parallel_config
+    if (
+        extra_config.get("spec_name") == "DistributedPrimaryOffloadingSpec"
+        and parallel_config.distributed_executor_backend != "mp"
+    ):
+        raise ValueError("DistributedPrimaryOffloadingSpec requires the mp executor")
     selected_groups = tuple(
         (group_id, kv_cache_config.kv_cache_groups[group_id])
         for group_id in get_offloading_group_ids(kv_cache_config)
