@@ -119,6 +119,19 @@ def test_tiering_spec_registered():
     assert cls is TieringOffloadingSpec
 
 
+def test_distributed_primary_spec_is_explicitly_opt_in():
+    from vllm.v1.kv_offload.tiering.distributed_primary import (
+        DistributedPrimaryOffloadingSpec,
+    )
+
+    spec = _create_spec(spec_name="DistributedPrimaryOffloadingSpec")
+    assert isinstance(spec, DistributedPrimaryOffloadingSpec)
+    assert type(_create_spec()) is CPUOffloadingSpec
+    assert (
+        type(_create_spec(spec_name="TieringOffloadingSpec")) is TieringOffloadingSpec
+    )
+
+
 def test_get_spec_cls_returns_registered_class():
     spec_cls = OffloadingSpecFactory.get_spec_cls(
         _make_offloading_config().extra_config

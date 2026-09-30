@@ -7,10 +7,11 @@ This guide covers configuration of the [`OffloadingConnector`](disagg_prefill.md
 
 ## Overview
 
-Two specs are available, selected by the `spec_name` key in `kv_connector_extra_config`:
+Specs are selected by the `spec_name` key in `kv_connector_extra_config`:
 
 - `CPUOffloadingSpec` (default): single CPU tier. Completed GPU blocks are copied into pinned host memory.
 - `TieringOffloadingSpec`: multi-tier. A CPU primary tier plus one or more secondary tiers.
+- `DistributedPrimaryOffloadingSpec` (experimental): gather/scatter a multi-node TP primary using NIXL/UCX so existing scheduler-owned secondary tiers see complete rows.
 
 Only the CPU primary tier has direct GPU access. Secondary tiers cannot read from or write to GPU memory; all GPU↔secondary transfers are staged through the CPU primary tier.
 
@@ -94,6 +95,61 @@ vllm serve <model> \
     }
   }'
 ```
+
+### Experimental multi-node primary
+
+`DistributedPrimaryOffloadingSpec` keeps the existing tiering scheduler and
+secondary-tier APIs. It assigns CPU slots by logical worker rank, gathers each
+remote worker's stored shard into rank zero's CPU primary, and reads that shard
+back to the worker's node before a CPU-to-GPU load. A store is acknowledged only
+after its GPU-to-CPU copy and any required gather complete; normal all-worker
+completion tracking determines when the entire row is ready.
+
+```text
+Store: remote worker HBM -> node-local CPU -> rank-zero CPU -> secondary tier
+Load:  secondary tier -> rank-zero CPU -> node-local CPU -> remote worker HBM
+```
+
+For example, retain your KVCR secondary-tier configuration and select the new
+spec on all workers:
+
+```json
+{
+  "kv_connector": "OffloadingConnector",
+  "kv_role": "kv_both",
+  "kv_connector_extra_config": {
+    "spec_name": "DistributedPrimaryOffloadingSpec",
+    "cpu_bytes_to_use": 34359738368,
+    "primary_bridge_timeout_s": 60,
+    "secondary_tiers": [
+      {
+        "type": "kvcr",
+        "router_capabilities": ["router_hint"],
+        "control_ports": [5555]
+      }
+    ]
+  }
+}
+```
+
+The secondary tier still needs its normal deployment configuration and request
+hints; this spec does not discover remote cache owners or generate hints.
+NIXL with the UCX backend must be installed on participating nodes. The bridge
+uses NIXL for payloads and the TP CPU process group only for startup metadata.
+UCX transport selection remains controlled by the deployment environment.
+
+!!! warning
+    This is a synchronous correctness prototype, not a production throughput
+    implementation. It supports the `mp` executor, direct nonreplicated layouts,
+    TP-only workers, and PP1/PCP1/DP1; DCP is allowed. Canonical layouts and other
+    topologies are rejected. The full row address space is allocated on each
+    node, so `cpu_bytes_to_use` is a **per-node** budget in this mode, including
+    unused remote-rank slots. The additional gather/scatter consumes network
+    bandwidth and blocks the calling worker. Transfer errors/timeouts are fatal:
+    there is no graceful recompute fallback, retry, or cancellation protocol.
+    Failed transfers retain registrations until worker exit. Concurrent serving,
+    peer failure during startup/teardown, eviction stress, and optimized async
+    completion require further qualification. Existing specs remain unchanged.
 
 ## `kv_connector_extra_config` Reference
 

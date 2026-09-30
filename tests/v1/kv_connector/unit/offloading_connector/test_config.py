@@ -505,6 +505,25 @@ def _make_dsv3_2_kv_cache_config(num_blocks: int = 4) -> KVCacheConfig:
     )
 
 
+@pytest.mark.parametrize("backend", ["ray", "external_launcher", "uni"])
+def test_distributed_primary_requires_mp_executor(backend):
+    config = _make_vllm_config(
+        extra_config={"spec_name": "DistributedPrimaryOffloadingSpec"}
+    )
+    config.parallel_config.distributed_executor_backend = backend
+    with pytest.raises(ValueError, match="requires the mp executor"):
+        build_offloading_config(config, _make_kv_cache_config())
+
+
+def test_distributed_primary_accepts_mp_executor():
+    config = _make_vllm_config(
+        extra_config={"spec_name": "DistributedPrimaryOffloadingSpec"}
+    )
+    config.parallel_config.distributed_executor_backend = "mp"
+    result = build_offloading_config(config, _make_kv_cache_config())
+    assert result.extra_config["spec_name"] == "DistributedPrimaryOffloadingSpec"
+
+
 @pytest.mark.parametrize("packed", [False, True])
 def test_worker_kv_bytes_preserves_tensor_layout(packed: bool):
     config = _make_vllm_config(
